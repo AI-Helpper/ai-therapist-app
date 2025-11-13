@@ -51,6 +51,7 @@ function AITherapistApp() {
   const [messageCount, setMessageCount] = useState(0);
   const [isPremium, setIsPremium] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const messagesEndRef = useRef(null);
 
   const FREE_MESSAGE_LIMIT = 5;
@@ -62,6 +63,34 @@ function AITherapistApp() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Check for payment success on load
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get('session_id');
+    
+    if (sessionId) {
+      verifyPayment(sessionId);
+    }
+  }, []);
+
+  const verifyPayment = async (sessionId) => {
+    try {
+      const response = await fetch(`/api/verify-payment?session_id=${sessionId}`);
+      const data = await response.json();
+      
+      if (data.paid) {
+        setIsPremium(true);
+        localStorage.setItem('is-premium', 'true');
+        localStorage.setItem('subscription-id', data.subscription);
+        alert('🎉 Payment successful! You now have unlimited access.');
+        // Clean URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    } catch (error) {
+      console.error('Payment verification error:', error);
+    }
+  };
 
   // Load saved data on mount
   useEffect(() => {
@@ -88,19 +117,16 @@ function AITherapistApp() {
     loadData();
   }, []);
 
-  // Save messages whenever they change
   useEffect(() => {
     if (messages.length > 0) {
       localStorage.setItem('therapy-messages', JSON.stringify(messages));
     }
   }, [messages]);
 
-  // Save message count
   useEffect(() => {
     localStorage.setItem('message-count', messageCount.toString());
   }, [messageCount]);
 
-  // Save premium status
   useEffect(() => {
     localStorage.setItem('is-premium', isPremium.toString());
   }, [isPremium]);
@@ -210,11 +236,31 @@ Be human, caring, and present. Help users feel heard and supported.`,
     }
   };
 
-  const handleUpgrade = () => {
-    if (window.confirm('This would normally redirect to Stripe payment. Simulate successful payment for testing?')) {
-      setIsPremium(true);
-      setShowPaywall(false);
-      alert('🎉 Premium activated! You now have unlimited access.');
+  const handleUpgrade = async () => {
+    setIsProcessingPayment(true);
+    try {
+      const response = await fetch('/api/create-checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          origin: window.location.origin
+        })
+      });
+
+      const data = await response.json();
+      
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        alert('Error creating checkout session. Please try again.');
+        setIsProcessingPayment(false);
+      }
+    } catch (error) {
+      console.error('Checkout error:', error);
+      alert('Error processing payment. Please try again.');
+      setIsProcessingPayment(false);
     }
   };
 
@@ -261,13 +307,15 @@ Be human, caring, and present. Help users feel heard and supported.`,
 
         <button
           onClick={handleUpgrade}
-          className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-4 rounded-xl font-semibold hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl mb-3"
+          disabled={isProcessingPayment}
+          className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-4 rounded-xl font-semibold hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl mb-3 disabled:opacity-50"
         >
-          Upgrade to Premium
+          {isProcessingPayment ? 'Redirecting to Stripe...' : 'Upgrade to Premium'}
         </button>
         
         <button
           onClick={() => setShowPaywall(false)}
+          disabled={isProcessingPayment}
           className="w-full text-gray-600 py-2 hover:text-gray-900 transition-colors"
         >
           Maybe later

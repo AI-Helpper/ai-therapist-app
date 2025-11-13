@@ -1,11 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,6 +27,53 @@ app.post('/api/chat', async (req, res) => {
   } catch (error) {
     console.error('Error:', error);
     res.status(500).json({ error: 'Failed to process request' });
+  }
+});
+
+// Stripe checkout endpoint
+app.post('/api/create-checkout', async (req, res) => {
+  try {
+    const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        'success_url': `${req.body.origin}?session_id={CHECKOUT_SESSION_ID}`,
+        'cancel_url': req.body.origin,
+        'mode': 'subscription',
+        'line_items[0][price]': process.env.STRIPE_PRICE_ID,
+        'line_items[0][quantity]': '1'
+      })
+    });
+
+    const session = await response.json();
+    res.json({ url: session.url });
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+
+// Verify payment endpoint
+app.get('/api/verify-payment', async (req, res) => {
+  try {
+    const sessionId = req.query.session_id;
+    const response = await fetch(`https://api.stripe.com/v1/checkout/sessions/${sessionId}`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`
+      }
+    });
+
+    const session = await response.json();
+    res.json({ 
+      paid: session.payment_status === 'paid',
+      subscription: session.subscription
+    });
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: 'Failed to verify payment' });
   }
 });
 
